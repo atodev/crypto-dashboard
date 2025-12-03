@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
-import { getTopGainers, type Ticker } from './services/api'
+import { getTopGainers, getKlines, type Ticker } from './services/api'
+import { enrichWithSMA, type ChartData } from './utils/indicators'
 import { CryptoCard } from './components/CryptoCard'
 import { ChartPanel } from './components/ChartPanel'
+import { TradingPanel } from './components/TradingPanel'
+import { useTradingSession } from './hooks/useTradingSession'
 import { LayoutDashboard, RefreshCw, Rocket } from 'lucide-react'
 import { motion } from 'framer-motion'
 import './App.css'
@@ -10,6 +13,10 @@ function App() {
   const [tickers, setTickers] = useState<Ticker[]>([])
   const [selectedSymbol, setSelectedSymbol] = useState<string>('')
   const [loading, setLoading] = useState(true)
+
+  // State for the selected symbol's chart data
+  const [chartData, setChartData] = useState<ChartData[]>([])
+  const [chartLoading, setChartLoading] = useState(false)
 
   const fetchData = async () => {
     setLoading(true)
@@ -23,12 +30,33 @@ function App() {
     setLoading(false)
   }
 
+  // Fetch chart data when selected symbol changes
+  useEffect(() => {
+    const fetchChartData = async () => {
+      if (!selectedSymbol) return;
+      setChartLoading(true);
+      const klines = await getKlines(selectedSymbol, '1h', 200);
+      const enriched = enrichWithSMA(klines);
+      setChartData(enriched);
+      setChartLoading(false);
+    };
+
+    fetchChartData();
+    // Refresh chart data every minute
+    const interval = setInterval(fetchChartData, 60000);
+    return () => clearInterval(interval);
+  }, [selectedSymbol]);
+
   useEffect(() => {
     fetchData()
     // Auto refresh top gainers every 60s
     const interval = setInterval(fetchData, 60000)
     return () => clearInterval(interval)
   }, [])
+
+  const selectedTicker = tickers.find(t => t.symbol === selectedSymbol) || null;
+
+  const tradingSession = useTradingSession(selectedTicker, chartData);
 
   return (
     <div className="app-container">
@@ -64,29 +92,50 @@ function App() {
       ) : (
         <>
           <div className="app-grid">
-            {tickers.map((ticker, index) => (
-              <motion.div
-                key={ticker.symbol}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <CryptoCard
-                  ticker={ticker}
-                  isSelected={selectedSymbol === ticker.symbol}
-                  onClick={() => setSelectedSymbol(ticker.symbol)}
-                />
-              </motion.div>
-            ))}
+            {tickers.map((ticker, index) => {
+              const isTrading = tradingSession.trades.some(t => t.symbol === ticker.symbol);
+              return (
+                <motion.div
+                  key={ticker.symbol}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                >
+                  <CryptoCard
+                    ticker={ticker}
+                    isSelected={selectedSymbol === ticker.symbol}
+                    isTrading={isTrading}
+                    onClick={() => setSelectedSymbol(ticker.symbol)}
+                  />
+                </motion.div>
+              );
+            })}
           </div>
 
           <motion.div
-            className="app-chart-section"
+            className="app-content-row"
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
           >
-            {selectedSymbol && <ChartPanel symbol={selectedSymbol} />}
+            <div className="app-chart-section">
+              {selectedSymbol && (
+                <ChartPanel
+                  symbol={selectedSymbol}
+                  data={chartData}
+                  loading={chartLoading}
+                  activeTrade={tradingSession.trades.find(t => t.symbol === selectedSymbol)}
+                />
+              )}
+            </div>
+
+            <div style={{ width: '350px', flexShrink: 0 }}>
+              <TradingPanel
+                state={tradingSession}
+                onStart={tradingSession.startSession}
+                onStop={tradingSession.stopSession}
+              />
+            </div>
           </motion.div>
         </>
       )}

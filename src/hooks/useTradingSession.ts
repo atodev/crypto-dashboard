@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Ticker } from '../services/api';
-import { ChartData } from '../utils/indicators';
+import { useState, useEffect } from 'react';
+import type { Ticker } from '../services/api';
+import type { ChartData } from '../utils/indicators';
 
 export interface Trade {
     id: string;
@@ -10,6 +10,8 @@ export interface Trade {
     quantity: number; // Amount / EntryPrice
     entryTime: number;
     pnl: number;
+    stopLoss: number;
+    takeProfit: number;
 }
 
 export interface TradingState {
@@ -33,8 +35,6 @@ export const useTradingSession = (
         initialBalance: 50.00,
         trades: []
     });
-
-    const lastProcessedTimeRef = useRef<number>(0);
 
     const startSession = () => {
         setState(prev => ({
@@ -72,9 +72,6 @@ export const useTradingSession = (
         const currentPrice = parseFloat(currentTicker.lastPrice);
         const lastCandle = currentData[currentData.length - 1];
 
-        // Only process once per candle update or significant price change to avoid spamming
-        // For simulation, we'll run on every update but throttle trade entry
-
         const fastSMA = lastCandle.fastSMA;
         const slowSMA = lastCandle.slowSMA;
 
@@ -84,43 +81,49 @@ export const useTradingSession = (
             let newTrades = [...prev.trades];
             let newBalance = prev.balance;
 
-            // 1. Update PnL for existing trades and Check Stop Loss
-            // Stop Loss: "Trailing stop loss set at the tokens sell line" -> Interpreting as Slow SMA
+            // 1. Update PnL and Check Exits (Stop Loss / Take Profit)
             const activeTrades = newTrades.filter(trade => {
-                const currentValue = trade.quantity * currentPrice;
-                // Check exit condition: Price drops below Slow SMA
-                if (currentPrice < slowSMA) {
-                    newBalance += currentValue; // Sell and return to balance
-                    return false; // Remove from active trades
+                // Check Stop Loss (Price drops below SL)
+                if (currentPrice <= trade.stopLoss) {
+                    const exitValue = trade.quantity * trade.stopLoss; // Executed at SL
+                    newBalance += exitValue;
+                    return false;
+                }
+                // Check Take Profit (Price rises above TP)
+                if (currentPrice >= trade.takeProfit) {
+                    const exitValue = trade.quantity * trade.takeProfit; // Executed at TP
+                    newBalance += exitValue;
+                    return false;
                 }
                 return true;
             });
 
             // 2. Check Buy Condition
-            // "Trade with an amount that corresponds with the split between the fast and slow moving average"
-            // Only buy if Fast > Slow (Uptrend)
             const spread = fastSMA - slowSMA;
             const totalExposure = activeTrades.reduce((acc, t) => acc + t.amount, 0);
             const maxExposure = prev.equity * 0.8;
 
+            // Only buy if Fast > Slow (Uptrend) and we have room
             if (spread > 0 && totalExposure < maxExposure) {
-                // Calculate trade size based on spread strength
-                // Heuristic: (Spread / Price) * 1000 * BaseUnit? 
-                // Let's make it proportional: 
-                // If spread is 1% of price, invest $10?
                 const spreadPct = spread / currentPrice;
                 const proposedTradeAmount = Math.min(
                     newBalance,
                     (maxExposure - totalExposure),
-                    50 * (spreadPct * 10) // Dynamic sizing: 1% spread -> $5 trade
+                    50 * (spreadPct * 10)
                 );
 
-                // Minimum trade size filter to avoid dust
                 if (proposedTradeAmount > 1) {
-                    // Check if we already have a recent trade to avoid stacking too closely?
-                    // For now, simple logic: if we have funds and spread is good, add to position
-                    // Limit max trades to avoid over-fragmentation
-                    if (activeTrades.length < 5) {
+                    // Limit max trades per symbol to avoid stacking too closely
+                    const symbolTrades = activeTrades.filter(t => t.symbol === currentTicker.symbol);
+
+                    if (symbolTrades.length < 1) { // Only 1 active trade per symbol for simplicity
+                        // Calculate SL and TP
+                        // SL = Slow SMA
+                        // TP = Entry + (Entry - SL) * 2 (2:1 Reward Ratio)
+                        const stopLoss = slowSMA;
+                        const risk = currentPrice - stopLoss;
+                        const takeProfit = currentPrice + (risk * 2);
+
                         activeTrades.push({
                             id: Math.random().toString(36).substr(2, 9),
                             symbol: currentTicker.symbol,
@@ -128,7 +131,9 @@ export const useTradingSession = (
                             amount: proposedTradeAmount,
                             quantity: proposedTradeAmount / currentPrice,
                             entryTime: Date.now(),
-                            pnl: 0
+                            pnl: 0,
+                            stopLoss,
+                            takeProfit
                         });
                         newBalance -= proposedTradeAmount;
                     }
@@ -154,7 +159,7 @@ export const useTradingSession = (
             };
         });
 
-    }, [currentTicker, currentData]); // Dependency on ticker updates
+    }, [currentTicker, currentData]);
 
     return {
         ...state,

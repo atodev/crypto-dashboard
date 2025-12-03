@@ -8,6 +8,7 @@ export interface Ticker {
   priceChangePercent: string;
   lastPrice: string;
   volume: string;
+  quoteVolume: string;
   count: number;
 }
 
@@ -27,11 +28,11 @@ export const getTopGainers = async (): Promise<Ticker[]> => {
     // Filter for USDT pairs to keep it clean and sort by percentage change
     // Also filtering out leveraged tokens (UP/DOWN/BULL/BEAR) usually helps quality
     return response.data
-      .filter(t => 
-        t.symbol.endsWith('USDT') && 
-        !t.symbol.includes('UP') && 
-        !t.symbol.includes('DOWN') && 
-        !t.symbol.includes('BULL') && 
+      .filter(t =>
+        t.symbol.endsWith('USDT') &&
+        !t.symbol.includes('UP') &&
+        !t.symbol.includes('DOWN') &&
+        !t.symbol.includes('BULL') &&
         !t.symbol.includes('BEAR') &&
         parseFloat(t.quoteVolume) > 10000000 // Filter for decent liquidity (10M USDT volume)
       )

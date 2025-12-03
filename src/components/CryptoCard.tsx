@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import type { Ticker } from '../services/api';
 import '../App.css';
@@ -7,25 +6,31 @@ import '../App.css';
 interface CryptoCardProps {
     ticker: Ticker;
     isSelected: boolean;
+    isTrading?: boolean;
     onClick: () => void;
 }
 
-export const CryptoCard: React.FC<CryptoCardProps> = ({ ticker, isSelected, onClick }) => {
+export const CryptoCard: React.FC<CryptoCardProps> = ({ ticker, isSelected, isTrading, onClick }) => {
     const isPositive = parseFloat(ticker.priceChangePercent) >= 0;
 
     return (
-        <motion.div
-            layout
-            onClick={onClick}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ scale: 1.02, y: -5 }}
-            whileTap={{ scale: 0.98 }}
+        <div
             className={`crypto-card ${isSelected ? 'crypto-card--selected' : ''}`}
+            onClick={onClick}
         >
+            {isSelected && <div className="crypto-card__glow" style={{ backgroundColor: isPositive ? '#10b981' : '#ef4444' }} />}
+
             <div className="crypto-card__header">
                 <div className="crypto-card__symbol">
-                    <h3>{ticker.symbol.replace('USDT', '')}</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <h3>{ticker.symbol.replace('USDT', '')}</h3>
+                        {isTrading && (
+                            <div className="trading-dot-container" title="Active Trade">
+                                <div className="trading-dot" />
+                                <div className="trading-dot-ring" />
+                            </div>
+                        )}
+                    </div>
                     <span>USDT</span>
                 </div>
                 <div className={`crypto-card__change ${isPositive ? 'crypto-card__change--positive' : 'crypto-card__change--negative'}`}>
@@ -34,20 +39,13 @@ export const CryptoCard: React.FC<CryptoCardProps> = ({ ticker, isSelected, onCl
                 </div>
             </div>
 
-            <div className="crypto-card__body">
-                <p className="crypto-card__price">
-                    ${parseFloat(ticker.lastPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
-                </p>
-                <p className="crypto-card__volume">
-                    Vol: ${(parseFloat(ticker.volume) / 1000000).toFixed(2)}M
-                </p>
+            <div className="crypto-card__price">
+                ${parseFloat(ticker.lastPrice).toFixed(parseFloat(ticker.lastPrice) < 1 ? 4 : 2)}
             </div>
 
-            {/* Decorative background glow */}
-            <div
-                className="crypto-card__glow"
-                style={{ backgroundColor: isPositive ? 'var(--accent-green)' : 'var(--accent-red)' }}
-            />
-        </motion.div>
+            <div className="crypto-card__volume">
+                Vol: ${(parseFloat(ticker.quoteVolume) / 1000000).toFixed(2)}M
+            </div>
+        </div>
     );
 };

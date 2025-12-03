@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Square, Timer, DollarSign, TrendingUp } from 'lucide-react';
-import { TradingState } from '../hooks/useTradingSession';
+import type { TradingState } from '../hooks/useTradingSession';
 import { motion } from 'framer-motion';
 import '../App.css';
 

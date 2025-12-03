@@ -1,20 +1,28 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, type IChartApi, type Time } from 'lightweight-charts';
-import { getKlines } from '../services/api';
-import { enrichWithSMA } from '../utils/indicators';
+import React, { useEffect, useRef } from 'react';
+import { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, type IChartApi, type Time, type ISeriesApi } from 'lightweight-charts';
+import type { ChartData } from '../utils/indicators';
+import type { Trade } from '../hooks/useTradingSession';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity } from 'lucide-react';
 import '../App.css';
 
 interface ChartPanelProps {
     symbol: string;
+    data: ChartData[];
+    loading: boolean;
+    activeTrade?: Trade;
 }
 
-export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
+export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol, data, loading, activeTrade }) => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
-    const [loading, setLoading] = useState(false);
+    const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const fastSMASeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const slowSMASeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const tpLineRef = useRef<any>(null);
+    const slLineRef = useRef<any>(null);
 
+    // Initialize Chart
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
@@ -49,7 +57,7 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
 
         chartRef.current = chart;
 
-        const candlestickSeries = chart.addSeries(CandlestickSeries, {
+        candlestickSeriesRef.current = chart.addSeries(CandlestickSeries, {
             upColor: '#10b981',
             downColor: '#ef4444',
             borderVisible: false,
@@ -57,54 +65,17 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
             wickDownColor: '#ef4444',
         });
 
-        const fastSMASeries = chart.addSeries(LineSeries, {
+        fastSMASeriesRef.current = chart.addSeries(LineSeries, {
             color: '#facc15',
             lineWidth: 2,
             title: 'Fast SMA (7)',
         });
 
-        const slowSMASeries = chart.addSeries(LineSeries, {
+        slowSMASeriesRef.current = chart.addSeries(LineSeries, {
             color: '#22d3ee',
             lineWidth: 2,
             title: 'Slow SMA (25)',
         });
-
-        const fetchData = async () => {
-            setLoading(true);
-            const klines = await getKlines(symbol, '1h', 200);
-            const enriched = enrichWithSMA(klines);
-
-            const candleData = enriched.map(d => ({
-                time: (d.openTime / 1000) as Time,
-                open: d.open,
-                high: d.high,
-                low: d.low,
-                close: d.close,
-            }));
-
-            const fastSMAData = enriched
-                .filter(d => d.fastSMA !== null)
-                .map(d => ({
-                    time: (d.openTime / 1000) as Time,
-                    value: d.fastSMA!,
-                }));
-
-            const slowSMAData = enriched
-                .filter(d => d.slowSMA !== null)
-                .map(d => ({
-                    time: (d.openTime / 1000) as Time,
-                    value: d.slowSMA!,
-                }));
-
-            candlestickSeries.setData(candleData);
-            fastSMASeries.setData(fastSMAData);
-            slowSMASeries.setData(slowSMAData);
-
-            chart.timeScale().fitContent();
-            setLoading(false);
-        };
-
-        fetchData();
 
         window.addEventListener('resize', handleResize);
 
@@ -112,7 +83,76 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
-    }, [symbol]);
+    }, []); // Run once on mount
+
+    // Update Data
+    useEffect(() => {
+        if (!chartRef.current || data.length === 0) return;
+
+        const candleData = data.map(d => ({
+            time: (d.openTime / 1000) as Time,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+        }));
+
+        const fastSMAData = data
+            .filter(d => d.fastSMA !== null)
+            .map(d => ({
+                time: (d.openTime / 1000) as Time,
+                value: d.fastSMA!,
+            }));
+
+        const slowSMAData = data
+            .filter(d => d.slowSMA !== null)
+            .map(d => ({
+                time: (d.openTime / 1000) as Time,
+                value: d.slowSMA!,
+            }));
+
+        candlestickSeriesRef.current?.setData(candleData);
+        fastSMASeriesRef.current?.setData(fastSMAData);
+        slowSMASeriesRef.current?.setData(slowSMAData);
+
+        chartRef.current.timeScale().fitContent();
+
+    }, [data, symbol]);
+
+    // Update Active Trade Lines
+    useEffect(() => {
+        if (!candlestickSeriesRef.current) return;
+
+        // Clear existing lines
+        if (tpLineRef.current) {
+            candlestickSeriesRef.current.removePriceLine(tpLineRef.current);
+            tpLineRef.current = null;
+        }
+        if (slLineRef.current) {
+            candlestickSeriesRef.current.removePriceLine(slLineRef.current);
+            slLineRef.current = null;
+        }
+
+        if (activeTrade) {
+            tpLineRef.current = candlestickSeriesRef.current.createPriceLine({
+                price: activeTrade.takeProfit,
+                color: '#34d399',
+                lineWidth: 2,
+                lineStyle: 0, // Solid
+                axisLabelVisible: true,
+                title: 'Take Profit',
+            });
+
+            slLineRef.current = candlestickSeriesRef.current.createPriceLine({
+                price: activeTrade.stopLoss,
+                color: '#ef4444',
+                lineWidth: 2,
+                lineStyle: 0, // Solid
+                axisLabelVisible: true,
+                title: 'Stop Loss',
+            });
+        }
+    }, [activeTrade]);
 
     return (
         <div className="chart-panel">
@@ -129,6 +169,16 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
                         <span className="legend-item">
                             <div className="legend-dot" style={{ backgroundColor: '#22d3ee' }} /> Slow SMA (25)
                         </span>
+                        {activeTrade && (
+                            <>
+                                <span className="legend-item">
+                                    <div className="legend-dot" style={{ backgroundColor: '#34d399' }} /> TP
+                                </span>
+                                <span className="legend-item">
+                                    <div className="legend-dot" style={{ backgroundColor: '#ef4444' }} /> SL
+                                </span>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
