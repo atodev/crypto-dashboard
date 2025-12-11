@@ -94,6 +94,9 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({ state, onStart, onSt
                                 className="trade-item"
                             >
                                 <div className="trade-info">
+                                    <span className="trade-symbol" style={{ fontWeight: 'bold', marginRight: '8px' }}>
+                                        {trade.symbol.replace('USDT', '')}
+                                    </span>
                                     <span className="trade-amt">${trade.amount.toFixed(2)}</span>
                                     <span className="trade-price">@ {trade.entryPrice.toFixed(4)}</span>
                                 </div>

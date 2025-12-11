@@ -42,21 +42,31 @@ function App() {
     };
 
     fetchChartData();
-    // Refresh chart data every minute
-    const interval = setInterval(fetchChartData, 60000);
+    // Refresh chart data every 15 seconds (User Requested)
+    const interval = setInterval(fetchChartData, 15000);
     return () => clearInterval(interval);
   }, [selectedSymbol]);
 
   useEffect(() => {
     fetchData()
-    // Auto refresh top gainers every 60s
-    const interval = setInterval(fetchData, 60000)
+    // Auto refresh top gainers every 15 seconds
+    const interval = setInterval(fetchData, 15000)
     return () => clearInterval(interval)
   }, [])
 
   const selectedTicker = tickers.find(t => t.symbol === selectedSymbol) || null;
-
   const tradingSession = useTradingSession(selectedTicker, chartData);
+
+  // Auto-switch to new trade
+  const prevTradeCount = useState(0);
+  useEffect(() => {
+    if (tradingSession.trades.length > prevTradeCount[0]) {
+      // New trade detected! Switch to it.
+      const latestTrade = tradingSession.trades[tradingSession.trades.length - 1];
+      setSelectedSymbol(latestTrade.symbol);
+    }
+    prevTradeCount[1](tradingSession.trades.length);
+  }, [tradingSession.trades]);
 
   return (
     <div className="app-container">
@@ -129,7 +139,7 @@ function App() {
               )}
             </div>
 
-            <div style={{ width: '350px', flexShrink: 0 }}>
+            <div className="trading-panel-container">
               <TradingPanel
                 state={tradingSession}
                 onStart={tradingSession.startSession}
